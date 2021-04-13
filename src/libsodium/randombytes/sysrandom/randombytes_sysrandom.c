@@ -116,7 +116,7 @@ typedef struct SysRandom_ {
     int getrandom_available;
 } SysRandom;
 
-static SysRandom stream = {
+static SysRandom sr_stream = {
     SODIUM_C99(.random_data_source_fd =) -1,
     SODIUM_C99(.initialized =) 0,
     SODIUM_C99(.getrandom_available =) 0
@@ -268,15 +268,15 @@ randombytes_sysrandom_init(void)
         unsigned char fodder[16];
 
         if (randombytes_linux_getrandom(fodder, sizeof fodder) == 0) {
-            stream.getrandom_available = 1;
+            sr_stream.getrandom_available = 1;
             errno = errno_save;
             return;
         }
-        stream.getrandom_available = 0;
+        sr_stream.getrandom_available = 0;
     }
 #  endif
 
-    if ((stream.random_data_source_fd =
+    if ((sr_stream.random_data_source_fd =
          randombytes_sysrandom_random_dev_open()) == -1) {
         sodium_misuse(); /* LCOV_EXCL_LINE */
     }
@@ -294,16 +294,16 @@ randombytes_sysrandom_init(void)
 static void
 randombytes_sysrandom_stir(void)
 {
-    if (stream.initialized == 0) {
+    if (sr_stream.initialized == 0) {
         randombytes_sysrandom_init();
-        stream.initialized = 1;
+        sr_stream.initialized = 1;
     }
 }
 
 static void
 randombytes_sysrandom_stir_if_needed(void)
 {
-    if (stream.initialized == 0) {
+    if (sr_stream.initialized == 0) {
         randombytes_sysrandom_stir();
     }
 }
@@ -314,20 +314,20 @@ randombytes_sysrandom_close(void)
     int ret = -1;
 
 # ifndef _WIN32
-    if (stream.random_data_source_fd != -1 &&
-        close(stream.random_data_source_fd) == 0) {
-        stream.random_data_source_fd = -1;
-        stream.initialized = 0;
+    if (sr_stream.random_data_source_fd != -1 &&
+        close(sr_stream.random_data_source_fd) == 0) {
+        sr_stream.random_data_source_fd = -1;
+        sr_stream.initialized = 0;
         ret = 0;
     }
 #  ifdef HAVE_LINUX_COMPATIBLE_GETRANDOM
-    if (stream.getrandom_available != 0) {
+    if (sr_stream.getrandom_available != 0) {
         ret = 0;
     }
 #  endif
 # else /* _WIN32 */
-    if (stream.initialized != 0) {
-        stream.initialized = 0;
+    if (sr_stream.initialized != 0) {
+        sr_stream.initialized = 0;
         ret = 0;
     }
 # endif /* _WIN32 */
@@ -346,15 +346,15 @@ randombytes_sysrandom_buf(void * const buf, const size_t size)
 # endif
 # ifndef _WIN32
 #  ifdef HAVE_LINUX_COMPATIBLE_GETRANDOM
-    if (stream.getrandom_available != 0) {
+    if (sr_stream.getrandom_available != 0) {
         if (randombytes_linux_getrandom(buf, size) != 0) {
             sodium_misuse(); /* LCOV_EXCL_LINE */
         }
         return;
     }
 #  endif
-    if (stream.random_data_source_fd == -1 ||
-        safe_read(stream.random_data_source_fd, buf, size) != (ssize_t) size) {
+    if (sr_stream.random_data_source_fd == -1 ||
+        safe_read(sr_stream.random_data_source_fd, buf, size) != (ssize_t) size) {
         sodium_misuse(); /* LCOV_EXCL_LINE */
     }
 # else /* _WIN32 */

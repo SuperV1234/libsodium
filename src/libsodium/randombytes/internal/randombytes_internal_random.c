@@ -125,7 +125,7 @@ static InternalRandomGlobal global = {
     SODIUM_C99(.random_data_source_fd =) -1
 };
 
-static TLS InternalRandom stream = {
+static TLS InternalRandom ir_stream = {
     SODIUM_C99(.initialized =) 0,
     SODIUM_C99(.rnd32_outleft =) (size_t) 0U
 };
@@ -400,10 +400,10 @@ randombytes_internal_random_init(void)
 static void
 randombytes_internal_random_stir(void)
 {
-    stream.nonce = sodium_hrtime();
-    assert(stream.nonce != (uint64_t) 0U);
-    memset(stream.rnd32, 0, sizeof stream.rnd32);
-    stream.rnd32_outleft = (size_t) 0U;
+    ir_stream.nonce = sodium_hrtime();
+    assert(ir_stream.nonce != (uint64_t) 0U);
+    memset(ir_stream.rnd32, 0, sizeof ir_stream.rnd32);
+    ir_stream.rnd32_outleft = (size_t) 0U;
     if (global.initialized == 0) {
         randombytes_internal_random_init();
         global.initialized = 1;
@@ -416,22 +416,22 @@ randombytes_internal_random_stir(void)
 
 # ifdef HAVE_GETENTROPY
      if (global.getentropy_available != 0) {
-         if (randombytes_getentropy(stream.key, sizeof stream.key) != 0) {
+         if (randombytes_getentropy(ir_stream.key, sizeof ir_stream.key) != 0) {
              sodium_misuse(); /* LCOV_EXCL_LINE */
          }
      }
 # elif defined(HAVE_LINUX_COMPATIBLE_GETRANDOM)
      if (global.getrandom_available != 0) {
-         if (randombytes_linux_getrandom(stream.key, sizeof stream.key) != 0) {
+         if (randombytes_linux_getrandom(ir_stream.key, sizeof ir_stream.key) != 0) {
              sodium_misuse(); /* LCOV_EXCL_LINE */
          }
      }
 # elif defined(NONEXISTENT_DEV_RANDOM) && defined(HAVE_SAFE_ARC4RANDOM)
-    arc4random_buf(stream.key, sizeof stream.key);
+    arc4random_buf(ir_stream.key, sizeof ir_stream.key);
 # elif !defined(NONEXISTENT_DEV_RANDOM)
     if (global.random_data_source_fd == -1 ||
-        safe_read(global.random_data_source_fd, stream.key,
-                  sizeof stream.key) != (ssize_t) sizeof stream.key) {
+        safe_read(global.random_data_source_fd, ir_stream.key,
+                  sizeof ir_stream.key) != (ssize_t) sizeof ir_stream.key) {
         sodium_misuse(); /* LCOV_EXCL_LINE */
     }
 # else
@@ -439,12 +439,12 @@ randombytes_internal_random_stir(void)
 # endif
 
 #else /* _WIN32 */
-    if (! RtlGenRandom((PVOID) stream.key, (ULONG) sizeof stream.key)) {
+    if (! RtlGenRandom((PVOID) ir_stream.key, (ULONG) sizeof ir_stream.key)) {
         sodium_misuse(); /* LCOV_EXCL_LINE */
     }
 #endif
 
-    stream.initialized = 1;
+    ir_stream.initialized = 1;
 }
 
 /*
@@ -455,13 +455,13 @@ static void
 randombytes_internal_random_stir_if_needed(void)
 {
 #ifdef HAVE_GETPID
-    if (stream.initialized == 0) {
+    if (ir_stream.initialized == 0) {
         randombytes_internal_random_stir();
     } else if (global.pid != getpid()) {
         sodium_misuse(); /* LCOV_EXCL_LINE */
     }
 #else
-    if (stream.initialized == 0) {
+    if (ir_stream.initialized == 0) {
         randombytes_internal_random_stir();
     }
 #endif
@@ -481,7 +481,7 @@ randombytes_internal_random_close(void)
         global.initialized = 0;
         ret = 0;
     }
-    sodium_memzero(&stream, sizeof stream);
+    sodium_memzero(&ir_stream, sizeof ir_stream);
 
     return ret;
 }
@@ -535,7 +535,7 @@ randombytes_internal_random_xorhwrand(void)
     }
     (void) _rdrand32_step(&r);
     * (uint32_t *) (void *)
-        &stream.key[crypto_stream_chacha20_KEYBYTES - 4] ^= (uint32_t) r;
+        &ir_stream.key[crypto_stream_chacha20_KEYBYTES - 4] ^= (uint32_t) r;
 #endif
 /* LCOV_EXCL_STOP */
 }
@@ -547,10 +547,10 @@ randombytes_internal_random_xorhwrand(void)
 static inline void
 randombytes_internal_random_xorkey(const unsigned char * const mix)
 {
-    unsigned char *key = stream.key;
+    unsigned char *key = ir_stream.key;
     size_t         i;
 
-    for (i = (size_t) 0U; i < sizeof stream.key; i++) {
+    for (i = (size_t) 0U; i < sizeof ir_stream.key; i++) {
         key[i] ^= mix[i];
     }
 }
@@ -566,7 +566,7 @@ randombytes_internal_random_buf(void * const buf, const size_t size)
     int    ret;
 
     randombytes_internal_random_stir_if_needed();
-    COMPILER_ASSERT(sizeof stream.nonce == crypto_stream_chacha20_NONCEBYTES);
+    COMPILER_ASSERT(sizeof ir_stream.nonce == crypto_stream_chacha20_NONCEBYTES);
 #if defined(ULLONG_MAX) && defined(SIZE_MAX)
 # if SIZE_MAX > ULLONG_MAX
     /* coverity[result_independent_of_operands] */
@@ -574,15 +574,15 @@ randombytes_internal_random_buf(void * const buf, const size_t size)
 # endif
 #endif
     ret = crypto_stream_chacha20((unsigned char *) buf, (unsigned long long) size,
-                                 (unsigned char *) &stream.nonce, stream.key);
+                                 (unsigned char *) &ir_stream.nonce, ir_stream.key);
     assert(ret == 0);
     for (i = 0U; i < sizeof size; i++) {
-        stream.key[i] ^= ((const unsigned char *) (const void *) &size)[i];
+        ir_stream.key[i] ^= ((const unsigned char *) (const void *) &size)[i];
     }
     randombytes_internal_random_xorhwrand();
-    stream.nonce++;
-    crypto_stream_chacha20_xor(stream.key, stream.key, sizeof stream.key,
-                               (unsigned char *) &stream.nonce, stream.key);
+    ir_stream.nonce++;
+    crypto_stream_chacha20_xor(ir_stream.key, ir_stream.key, sizeof ir_stream.key,
+                               (unsigned char *) &ir_stream.nonce, ir_stream.key);
 }
 
 /*
@@ -597,26 +597,26 @@ randombytes_internal_random(void)
     uint32_t val;
     int      ret;
 
-    COMPILER_ASSERT(sizeof stream.rnd32 >= (sizeof stream.key) + (sizeof val));
-    COMPILER_ASSERT(((sizeof stream.rnd32) - (sizeof stream.key))
+    COMPILER_ASSERT(sizeof ir_stream.rnd32 >= (sizeof ir_stream.key) + (sizeof val));
+    COMPILER_ASSERT(((sizeof ir_stream.rnd32) - (sizeof ir_stream.key))
                     % sizeof val == (size_t) 0U);
-    if (stream.rnd32_outleft <= (size_t) 0U) {
+    if (ir_stream.rnd32_outleft <= (size_t) 0U) {
         randombytes_internal_random_stir_if_needed();
-        COMPILER_ASSERT(sizeof stream.nonce == crypto_stream_chacha20_NONCEBYTES);
-        ret = crypto_stream_chacha20((unsigned char *) stream.rnd32,
-                                     (unsigned long long) sizeof stream.rnd32,
-                                     (unsigned char *) &stream.nonce,
-                                     stream.key);
+        COMPILER_ASSERT(sizeof ir_stream.nonce == crypto_stream_chacha20_NONCEBYTES);
+        ret = crypto_stream_chacha20((unsigned char *) ir_stream.rnd32,
+                                     (unsigned long long) sizeof ir_stream.rnd32,
+                                     (unsigned char *) &ir_stream.nonce,
+                                     ir_stream.key);
         assert(ret == 0);
-        stream.rnd32_outleft = (sizeof stream.rnd32) - (sizeof stream.key);
+        ir_stream.rnd32_outleft = (sizeof ir_stream.rnd32) - (sizeof ir_stream.key);
         randombytes_internal_random_xorhwrand();
-        randombytes_internal_random_xorkey(&stream.rnd32[stream.rnd32_outleft]);
-        memset(&stream.rnd32[stream.rnd32_outleft], 0, sizeof stream.key);
-        stream.nonce++;
+        randombytes_internal_random_xorkey(&ir_stream.rnd32[ir_stream.rnd32_outleft]);
+        memset(&ir_stream.rnd32[ir_stream.rnd32_outleft], 0, sizeof ir_stream.key);
+        ir_stream.nonce++;
     }
-    stream.rnd32_outleft -= sizeof val;
-    memcpy(&val, &stream.rnd32[stream.rnd32_outleft], sizeof val);
-    memset(&stream.rnd32[stream.rnd32_outleft], 0, sizeof val);
+    ir_stream.rnd32_outleft -= sizeof val;
+    memcpy(&val, &ir_stream.rnd32[ir_stream.rnd32_outleft], sizeof val);
+    memset(&ir_stream.rnd32[ir_stream.rnd32_outleft], 0, sizeof val);
 
     return val;
 }
